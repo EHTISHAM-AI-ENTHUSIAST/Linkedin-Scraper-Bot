@@ -1,66 +1,58 @@
-# GitHub Actions Workflow for LinkedIn Scraper Bot
-# Runs the bot on a schedule (every 6 hours) or manually
-
 name: LinkedIn Scraper Bot
 
 on:
-  # Run on schedule (every 6 hours)
+  # Run every 6 hours
   schedule:
-    - cron: '0 */6 * * *'  # At minute 0 past every 6th hour
+    - cron: '0 */6 * * *'
   
   # Allow manual trigger
   workflow_dispatch:
     inputs:
       search_query:
-        description: 'Search query for LinkedIn profiles'
+        description: 'Custom search query (e.g., site:linkedin.com/in/ data scientist)'
         required: false
-        default: 'site:linkedin.com python developer lahore'
-
-  # Run on push to main branch
-  push:
-    branches: [ main ]
+        default: 'site:linkedin.com/in/ software engineer'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-
-    - name: Install Chrome
-      uses: browser-actions/setup-chrome@v1
-      with:
-        chrome-version: stable
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Run LinkedIn Scraper Bot
-      run: python bot.py
-      env:
-        SEARCH_QUERY: ${{ github.event.inputs.search_query || 'site:linkedin.com python developer lahore' }}
-
-    - name: Upload scraped data
-      uses: actions/upload-artifact@v4
-      with:
-        name: linkedin-profiles-${{ github.run_number }}
-        path: linkedin_profiles.csv
-        retention-days: 30
-
-    - name: Commit and push results (optional)
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add linkedin_profiles.csv || true
-        git diff --staged --quiet || git commit -m "🤖 Auto-update: LinkedIn profiles scraped on $(date +'%Y-%m-%d %H:%M')"
-        git push || true
-      continue-on-error: true
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run scraper
+        env:
+          HEADLESS: 'true'
+          SEARCH_QUERY: ${{ github.event.inputs.search_query || 'site:linkedin.com/in/ software engineer' }}
+        run: python bot.py
+      
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkedin-profiles-${{ github.run_number }}
+          path: linkedin_profiles.csv
+          retention-days: 30
+      
+      - name: Commit results to repo
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add linkedin_profiles.csv || true
+          git diff --staged --quiet || git commit -m "📊 Update scraped profiles - $(date +'%Y-%m-%d %H:%M:%S')"
+          git push || true

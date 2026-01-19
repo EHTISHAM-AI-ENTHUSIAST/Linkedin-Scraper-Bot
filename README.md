@@ -79,7 +79,15 @@ Results are saved to `linkedin_profiles.csv` with the following columns:
 Edit `bot.py` to customize:
 - `SEARCH_QUERY`: Default search query
 - `OUTPUT_FILE`: Output CSV filename
+- `MAX_RESULTS`: Maximum number of profiles to scrape
 - `headless`: Set to `False` for local debugging with visible browser
+
+## 🔒 Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEARCH_QUERY` | `site:linkedin.com/in/ software engineer` | Google search query |
+| `HEADLESS` | `true` | Run browser in headless mode |
 
 ## 📝 License
 

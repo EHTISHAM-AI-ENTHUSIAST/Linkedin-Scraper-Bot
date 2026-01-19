@@ -1,247 +1,192 @@
 """
 LinkedIn Profile Scraper Bot
-Scrapes LinkedIn profiles from Google search results using Selenium WebDriver.
-Author: Vibe Coding
+Scrapes LinkedIn profiles from Google search results
 """
 
+import os
+import csv
+import time
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
-import csv
-import os
-from datetime import datetime
-from dataclasses import dataclass
+
+# Configuration
+SEARCH_QUERY = os.getenv("SEARCH_QUERY", "site:linkedin.com/in/ software engineer")
+OUTPUT_FILE = "linkedin_profiles.csv"
+MAX_RESULTS = 50
 
 
-@dataclass
-class SearchResult:
-    """Data class to store a single search result."""
-    title: str
-    link: str
-    scraped_at: str
+def setup_driver(headless=True):
+    """Configure and return Chrome WebDriver"""
+    chrome_options = Options()
+    
+    if headless:
+        chrome_options.add_argument("--headless=new")
+    
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # Disable automation flags
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    # Execute CDP commands to prevent detection
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        """
+    })
+    
+    return driver
 
 
-class LinkedInScraper:
-    """
-    A Selenium-based bot to scrape LinkedIn profiles from Google search results.
+def scrape_google_results(driver, query, max_results=50):
+    """Scrape LinkedIn profiles from Google search results"""
+    profiles = []
+    page = 0
     
-    Attributes:
-        driver: Chrome WebDriver instance
-        wait: WebDriverWait instance for explicit waits
-        results: List of scraped SearchResult objects
-    """
-    
-    def __init__(self, headless: bool = False, timeout: int = 10):
-        """
-        Initialize the Chrome WebDriver with custom options.
+    while len(profiles) < max_results:
+        # Build Google search URL
+        start = page * 10
+        url = f"https://www.google.com/search?q={query}&start={start}"
         
-        Args:
-            headless: Run browser in headless mode (no GUI)
-            timeout: Default timeout for explicit waits in seconds
-        """
-        self.options = self._configure_chrome_options(headless)
-        self.driver = self._create_driver()
-        self.wait = WebDriverWait(self.driver, timeout)
-        self.results: list[SearchResult] = []
-        print("🚀 Browser initialized successfully!")
-    
-    def _configure_chrome_options(self, headless: bool) -> Options:
-        """Configure Chrome browser options."""
-        options = Options()
+        print(f"🔍 Scraping page {page + 1}...")
+        driver.get(url)
         
-        if headless:
-            options.add_argument("--headless=new")
-        
-        # Performance and stability options
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--start-maximized")
-        
-        # Disable automation flags
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        
-        return options
-    
-    def _create_driver(self) -> webdriver.Chrome:
-        """Create and return a Chrome WebDriver instance."""
-        service = Service(ChromeDriverManager().install())
-        return webdriver.Chrome(service=service, options=self.options)
-    
-    def search(self, query: str) -> "LinkedInScraper":
-        """
-        Perform a Google search with the given query.
-        
-        Args:
-            query: Search query string
-            
-        Returns:
-            Self for method chaining
-        """
-        print(f"\n🔍 Searching: {query}")
-        
+        # Wait for results to load
         try:
-            self.driver.get("https://www.google.com")
-            
-            # Wait for and interact with search box
-            search_box = self.wait.until(
-                EC.presence_of_element_located((By.NAME, "q"))
-            )
-            search_box.clear()
-            search_box.send_keys(query)
-            search_box.send_keys(Keys.RETURN)
-            
-            # Wait for results to load
-            self.wait.until(
+            WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, "search"))
             )
-            print("✅ Search completed!")
-            
         except TimeoutException:
-            print("❌ Timeout: Search results didn't load in time")
+            print("⚠️ Timeout waiting for search results")
+            break
         
-        return self
-    
-    def scrape(self) -> "LinkedInScraper":
-        """
-        Scrape titles and links from the current search results page.
+        # Add random delay to avoid detection
+        time.sleep(2)
         
-        Returns:
-            Self for method chaining
-        """
-        print("\n📄 Scraping results...")
-        self.results.clear()
-        
+        # Find all search result links
         try:
-            headings = self.driver.find_elements(By.CSS_SELECTOR, "h3")
+            search_results = driver.find_elements(By.CSS_SELECTOR, "div.g")
             
-            for heading in headings:
-                result = self._extract_result(heading)
-                if result:
-                    self.results.append(result)
+            if not search_results:
+                print("⚠️ No more results found")
+                break
             
-            print(f"✅ Scraped {len(self.results)} LinkedIn profiles")
-            
+            for result in search_results:
+                try:
+                    link_element = result.find_element(By.CSS_SELECTOR, "a")
+                    link = link_element.get_attribute("href")
+                    
+                    # Only get LinkedIn profile links
+                    if link and "linkedin.com/in/" in link:
+                        try:
+                            title_element = result.find_element(By.CSS_SELECTOR, "h3")
+                            title = title_element.text
+                        except NoSuchElementException:
+                            title = "Unknown"
+                        
+                        profile = {
+                            "title": title,
+                            "link": link,
+                            "scraped_at": datetime.now().isoformat()
+                        }
+                        
+                        # Avoid duplicates
+                        if not any(p["link"] == link for p in profiles):
+                            profiles.append(profile)
+                            print(f"✅ Found: {title[:50]}...")
+                        
+                        if len(profiles) >= max_results:
+                            break
+                            
+                except NoSuchElementException:
+                    continue
+                    
         except Exception as e:
-            print(f"❌ Error during scraping: {e}")
+            print(f"⚠️ Error parsing results: {e}")
         
-        return self
+        # Check for "next" button or if we've hit the limit
+        page += 1
+        if page >= 5:  # Limit to 5 pages to avoid rate limiting
+            break
+        
+        time.sleep(3)  # Delay between pages
     
-    def _extract_result(self, heading) -> SearchResult | None:
-        """Extract title and link from a heading element."""
-        try:
-            title = heading.text.strip()
-            if not title:
-                return None
-            
-            # Navigate to parent anchor tag
-            parent = heading.find_element(By.XPATH, "./..")
-            link = parent.get_attribute("href")
-            
-            if link and link.startswith("http"):
-                return SearchResult(
-                    title=title,
-                    link=link,
-                    scraped_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                )
-        except NoSuchElementException:
-            pass
-        
-        return None
+    return profiles
+
+
+def save_to_csv(profiles, filename):
+    """Save scraped profiles to CSV file"""
+    if not profiles:
+        print("⚠️ No profiles to save")
+        return
     
-    def display(self) -> "LinkedInScraper":
-        """
-        Display all scraped results in a formatted table.
-        
-        Returns:
-            Self for method chaining
-        """
-        if not self.results:
-            print("\n⚠️ No results to display")
-            return self
-        
-        print("\n" + "=" * 70)
-        print("📋 SCRAPED LINKEDIN PROFILES")
-        print("=" * 70)
-        
-        for idx, result in enumerate(self.results, start=1):
-            print(f"\n[{idx}] {result.title}")
-            print(f"    🔗 {result.link}")
-            print(f"    🕐 {result.scraped_at}")
-        
-        print("\n" + "=" * 70)
-        print(f"📊 Total: {len(self.results)} profiles found")
-        print("=" * 70)
-        
-        return self
+    # Check if file exists to determine if we need headers
+    file_exists = os.path.exists(filename)
     
-    def save_csv(self, filename: str = "linkedin_profiles.csv") -> "LinkedInScraper":
-        """
-        Save scraped results to a CSV file.
+    with open(filename, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["title", "link", "scraped_at"])
         
-        Args:
-            filename: Output CSV filename
-            
-        Returns:
-            Self for method chaining
-        """
-        if not self.results:
-            print("\n⚠️ No results to save")
-            return self
+        if not file_exists:
+            writer.writeheader()
         
-        filepath = os.path.join(os.path.dirname(__file__) or ".", filename)
-        
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Title", "Link", "Scraped At"])
-            
-            for result in self.results:
-                writer.writerow([result.title, result.link, result.scraped_at])
-        
-        print(f"\n💾 Saved {len(self.results)} results to: {filename}")
-        return self
+        writer.writerows(profiles)
     
-    def close(self) -> None:
-        """Close the browser and clean up resources."""
-        if self.driver:
-            self.driver.quit()
-            print("\n🔒 Browser closed. Goodbye!")
-    
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - ensures browser is closed."""
-        self.close()
+    print(f"💾 Saved {len(profiles)} profiles to {filename}")
 
 
 def main():
-    """Main entry point for the LinkedIn scraper bot."""
+    """Main function to run the scraper"""
+    print("=" * 50)
+    print("🤖 LinkedIn Profile Scraper Bot")
+    print("=" * 50)
+    print(f"📝 Search Query: {SEARCH_QUERY}")
+    print(f"📁 Output File: {OUTPUT_FILE}")
+    print(f"🎯 Max Results: {MAX_RESULTS}")
+    print("=" * 50)
     
-    # Configuration
-    SEARCH_QUERY = "site:linkedin.com python developer lahore"
-    OUTPUT_FILE = "linkedin_profiles.csv"
-    
-    print("\n" + "=" * 70)
-    print("🤖 LINKEDIN PROFILE SCRAPER BOT")
-    print("=" * 70)
-    
-    # Use context manager for automatic cleanup
-    with LinkedInScraper(headless=True) as scraper:
-        # Method chaining for clean, readable code
-        scraper.search(SEARCH_QUERY).scrape().display().save_csv(OUTPUT_FILE)
-    
-    print("\n✅ Bot execution completed successfully!")
+    driver = None
+    try:
+        # Setup driver (headless mode for cloud deployment)
+        headless = os.getenv("HEADLESS", "true").lower() == "true"
+        print(f"🖥️ Headless mode: {headless}")
+        
+        driver = setup_driver(headless=headless)
+        
+        # Scrape profiles
+        profiles = scrape_google_results(driver, SEARCH_QUERY, MAX_RESULTS)
+        
+        print(f"\n📊 Total profiles found: {len(profiles)}")
+        
+        # Save results
+        save_to_csv(profiles, OUTPUT_FILE)
+        
+        print("\n✅ Scraping completed successfully!")
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise
+        
+    finally:
+        if driver:
+            driver.quit()
+            print("🔒 Browser closed")
 
 
 if __name__ == "__main__":
