@@ -20,8 +20,9 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 
 # Configuration
 SEARCH_QUERY = os.getenv("SEARCH_QUERY", "site:linkedin.com/in/ software engineer")
-OUTPUT_FILE = "linkedin_profiles.csv"
+OUTPUT_FILE = os.getenv("OUTPUT_FILE", "linkedin_profiles.csv")
 MAX_RESULTS = 30
+USE_TIMESTAMP = os.getenv("USE_TIMESTAMP", "false").lower() == "true"
 
 
 def setup_driver(headless=True):
@@ -84,10 +85,13 @@ def scrape_google_results(driver, query, max_results=30):
     # URL encode the query
     encoded_query = quote_plus(query)
     
+    # Add timestamp to make results fresh each time
+    timestamp = int(time.time())
+    
     while len(profiles) < max_results:
-        # Build Google search URL
+        # Build Google search URL with timestamp parameter for fresh results
         start = page * 10
-        url = f"https://www.google.com/search?q={encoded_query}&start={start}&num=10"
+        url = f"https://www.google.com/search?q={encoded_query}&start={start}&num=10&tbs=qdr:w&t={timestamp}"
         
         print(f"🔍 Scraping page {page + 1}...")
         
@@ -207,11 +211,19 @@ def save_to_csv(profiles, filename):
 
 def main():
     """Main function to run the scraper"""
+    # Generate unique filename with timestamp if enabled
+    output_file = OUTPUT_FILE
+    if USE_TIMESTAMP:
+        base_name = OUTPUT_FILE.rsplit('.', 1)[0]
+        extension = OUTPUT_FILE.rsplit('.', 1)[1] if '.' in OUTPUT_FILE else 'csv'
+        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = f"{base_name}_{timestamp_str}.{extension}"
+    
     print("=" * 50)
     print("🤖 LinkedIn Profile Scraper Bot")
     print("=" * 50)
     print(f"📝 Search Query: {SEARCH_QUERY}")
-    print(f"📁 Output File: {OUTPUT_FILE}")
+    print(f"📁 Output File: {output_file}")
     print(f"🎯 Max Results: {MAX_RESULTS}")
     print("=" * 50)
     
@@ -244,7 +256,12 @@ def main():
                 pass
     
     # Always save results (even if empty) - this ensures the workflow succeeds
-    save_to_csv(profiles, OUTPUT_FILE)
+    save_to_csv(profiles, output_file)
+    
+    # Also create/update the main file for workflow
+    if USE_TIMESTAMP and output_file != OUTPUT_FILE:
+        save_to_csv(profiles, OUTPUT_FILE)
+    
     print("\n✅ Scraping completed!")
     
     # Exit with success even if no profiles found

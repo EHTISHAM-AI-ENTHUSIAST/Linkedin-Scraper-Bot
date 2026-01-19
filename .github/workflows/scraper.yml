@@ -1,17 +1,21 @@
 name: LinkedIn Scraper Bot
 
 on:
-  # Run every 6 hours
-  schedule:
-    - cron: '0 */6 * * *'
-  
-  # Allow manual trigger
+  # Manual trigger only (scheduled runs disabled)
   workflow_dispatch:
     inputs:
       search_query:
         description: 'Custom search query (e.g., site:linkedin.com/in/ data scientist)'
         required: false
         default: 'site:linkedin.com/in/ software engineer'
+      use_timestamp:
+        description: 'Create timestamped file for each run? (true/false)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   scrape:
@@ -56,6 +60,7 @@ jobs:
         env:
           HEADLESS: 'true'
           SEARCH_QUERY: ${{ github.event.inputs.search_query || 'site:linkedin.com/in/ software engineer' }}
+          USE_TIMESTAMP: ${{ github.event.inputs.use_timestamp || 'true' }}
           CHROME_BIN: /usr/bin/google-chrome
         run: python bot.py
         continue-on-error: true
@@ -65,7 +70,9 @@ jobs:
         if: always()
         with:
           name: linkedin-profiles-${{ github.run_number }}
-          path: linkedin_profiles.csv
+          path: |
+            linkedin_profiles.csv
+            linkedin_profiles_*.csv
           retention-days: 30
           if-no-files-found: ignore
       
@@ -74,6 +81,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add linkedin_profiles.csv || true
+          git add linkedin_profiles*.csv || true
           git diff --staged --quiet || git commit -m "📊 Update scraped profiles - $(date +'%Y-%m-%d %H:%M:%S')"
           git push || true
