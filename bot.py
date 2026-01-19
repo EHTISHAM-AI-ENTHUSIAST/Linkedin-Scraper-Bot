@@ -198,7 +198,7 @@ class LinkedInScraper:
             print("\n⚠️ No results to save")
             return self
         
-        filepath = os.path.join(os.path.dirname(__file__), filename)
+        filepath = os.path.join(os.path.dirname(__file__) or ".", filename)
         
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
